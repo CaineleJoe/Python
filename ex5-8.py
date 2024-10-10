@@ -36,4 +36,4 @@ def wordCounter(x):
     for i in  x.split():
         count=count+1
     return count
-print(wordCounter("salut     fram da     "))
+print(wordCounter("salut fram da"))
