@@ -1,4 +1,3 @@
-#ex1
 n=int(input("Introdu nr. de numere"))
 l=[]
 minv=-9999
