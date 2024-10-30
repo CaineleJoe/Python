@@ -69,6 +69,3 @@ studenti_trecuti, studenti_picati = calculeaza_rezultatele(fisier_json)
 
 print(f"Studenți care au trecut: {studenti_trecuti}")
 print(f"Studenți care au picat: {studenti_picati}")
-
-
-
