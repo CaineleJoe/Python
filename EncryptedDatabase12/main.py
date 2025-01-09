@@ -5,12 +5,21 @@ import sys
 import mysql.connector
 from mysql.connector import errorcode
 
+
+# --------------------------------------------------------------------------------
+#                                USAGE
+# --------------------------------------------------------------------------------
+
 def print_usage():
     print("Usage:")
     print("  python encrypted_database.py add <file_path>")
     print("  python encrypted_database.py read <file_id>")
     print("  python encrypted_database.py delete <file_id>")
 
+
+# --------------------------------------------------------------------------------
+#                            DATABASE RELATED
+# --------------------------------------------------------------------------------
 
 def create_encrypted_files_table(db_connection):
     create_table_query = """
@@ -36,22 +45,29 @@ def db_connect():
     )
     return db_connection
 
-def is_prime(n):
-    if n<2:
-        return False
-    if n%2==0:
-        return n==2
 
-    for i in range(3,int(n**0.5)+1,2):
-        if n % i==0:
+# --------------------------------------------------------------------------------
+#                           PRIME CHECK
+# --------------------------------------------------------------------------------
+
+def is_prime(n):
+    if n < 2:
+        return False
+    if n % 2 == 0:
+        return n == 2
+
+    for i in range(3, int(n ** 0.5) + 1, 2):
+        if n % i == 0:
             return False
 
     return True
 
+
 def generate_prime_candidate(bits=16):
     candidate = random.getrandbits(bits)
-    candidate |= (1<<(bits-1))|1
+    candidate |= (1 << (bits - 1)) | 1
     return candidate
+
 
 def get_keys_folder():
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -62,12 +78,17 @@ def get_keys_folder():
 
     return keys_folder
 
+
 def generate_prime_number(bits=16):
     while True:
-        candidate=generate_prime_candidate(bits)
+        candidate = generate_prime_candidate(bits)
         if is_prime(candidate):
             return candidate
 
+
+# --------------------------------------------------------------------------------
+#                           RSA FILE ENCRYPTION
+# --------------------------------------------------------------------------------
 def encrypt_file(src_path, dst_path, key=170, chunk_size=256):
     try:
         with open(src_path, "rb") as src_file, open(dst_path, "wb") as dst_file:
@@ -86,13 +107,16 @@ def encrypt_file(src_path, dst_path, key=170, chunk_size=256):
         print(f"[Error] Something went wrong: {e}")
 
 
+# --------------------------------------------------------------------------------
+#                           ADD COMMAND (RSA)
+# --------------------------------------------------------------------------------
 
-def  handle_add(filepath, db_connection):
+def handle_add(filepath, db_connection):
     if not os.path.isfile(filepath):
         print(f"[Error] File does not exist {filepath}")
         return
-    desktop_path=os.path.join(os.path.expanduser("~"), "Desktop")
-    encrypted_folder=os.path.join(desktop_path, "Encrypted")
+    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+    encrypted_folder = os.path.join(desktop_path, "Encrypted")
     if not os.path.exists(encrypted_folder):
         try:
             os.makedirs(encrypted_folder)
@@ -100,12 +124,12 @@ def  handle_add(filepath, db_connection):
             print(f"[Error] Failed to create folder {encrypted_folder}. Reason: {e}")
             return
 
-    base_name=os.path.basename(filepath)
-    encrypted_filename=base_name+"_encrypted"
-    encrypted_filepath=os.path.join(encrypted_folder, encrypted_filename)
-    #actual file encryption
+    base_name = os.path.basename(filepath)
+    encrypted_filename = base_name + "_encrypted"
+    encrypted_filepath = os.path.join(encrypted_folder, encrypted_filename)
+    # actual file encryption
     encrypt_file(filepath, encrypted_filepath)
-    #try inserting into database
+    # try inserting into database
     try:
         cursor = db_connection.cursor()
         insert_sql = """
@@ -127,8 +151,12 @@ def  handle_add(filepath, db_connection):
             print(f"[Error] Could not insert file metadata into DB: {err}")
 
 
+# --------------------------------------------------------------------------------
+#                               MAIN
+# --------------------------------------------------------------------------------
+
 def main():
-#command validation
+    # command validation
     if len(sys.argv) < 2 or len(sys.argv) > 3:
         print("[Error] Invalid number of arguments.")
         print_usage()
@@ -144,7 +172,7 @@ def main():
     else:
         print(f"[OK] Command recognized: {command}")
 
-#Try to connect to the database
+    # Try to connect to the database
     try:
         db_connection = db_connect()
         print("[OK] Successfully connected to MySQL database.")
@@ -157,20 +185,19 @@ def main():
             print(f"[Error] {err}")
         sys.exit(1)
 
-    #create encrypted files table if it doesn't exist
+    # create encrypted files table if it doesn't exist
     create_encrypted_files_table(db_connection)
 
-#Command Handler
-    if command=="add":
-        filepath=sys.argv[2]
-        handle_add(filepath,db_connection)
+    # Command Handler
+    if command == "add":
+        filepath = sys.argv[2]
+        handle_add(filepath, db_connection)
 
-
-
- #Close the connection
+    # Close the connection
     if db_connection.is_connected():
         db_connection.close()
         print("[OK] Database connection closed.")
+
 
 if __name__ == "__main__":
     main()
