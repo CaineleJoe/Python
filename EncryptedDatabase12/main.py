@@ -1,7 +1,7 @@
 import os
 import random
 import sys
-
+from math import gcd
 import mysql.connector
 from mysql.connector import errorcode
 
@@ -69,6 +69,39 @@ def generate_prime_candidate(bits=16):
     return candidate
 
 
+
+
+def generate_prime_number(bits=16):
+    while True:
+        candidate = generate_prime_candidate(bits)
+        if is_prime(candidate):
+            return candidate
+
+
+# --------------------------------------------------------------------------------
+#                           RSA KEY GENERATION
+# --------------------------------------------------------------------------------
+def generate_rsa_keypair(bits=16):
+    p=generate_prime_number(bits)
+    q=generate_prime_number(bits)
+    while p==q:
+        q=generate_prime_number(bits)
+    n= p*q
+    phi=(p-1)*(q-1)
+    e= 65537
+    if(gcd(e,phi)!=1):
+        e=random.randint(2,phi-1)
+
+    d=pow(e,-1,phi)
+    return (n,e),(n,d) #public_key=(n,e) private_key=(n,d)
+
+
+def save_key_to_file(key_tuple, filename):
+    with open(filename, "wb") as f:
+        f.write(str(key_tuple[0])+"\n")
+        f.write(str(key_tuple[1])+"\n")
+
+
 def get_keys_folder():
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
     keys_folder = os.path.join(desktop_path, "keys")
@@ -78,12 +111,6 @@ def get_keys_folder():
 
     return keys_folder
 
-
-def generate_prime_number(bits=16):
-    while True:
-        candidate = generate_prime_candidate(bits)
-        if is_prime(candidate):
-            return candidate
 
 
 # --------------------------------------------------------------------------------
