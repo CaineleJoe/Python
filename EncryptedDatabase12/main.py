@@ -202,8 +202,8 @@ def save_key_to_file(private_key, filename):
     """
     n, d = private_key
     with open(filename, "wb") as f:
-        f.write(str(n).encode('utf-8') + b"\n")
-        f.write(str(d).encode('utf-8') + b"\n")
+        f.write(str(n).encode('utf-16') + b"\n")
+        f.write(str(d).encode('utf-16') + b"\n")
 
 
 def load_private_key(filename):
@@ -226,8 +226,8 @@ def load_private_key(filename):
         lines = f.read().splitlines()
         if len(lines) < 2:
             raise ValueError("Invalid key file format.")
-        n = int(lines[0].decode('utf-8'))
-        d = int(lines[1].decode('utf-8'))
+        n = int(lines[0].decode('utf-16'))
+        d = int(lines[1].decode('utf-16'))
         return (n, d)
 
 
@@ -314,7 +314,7 @@ def rsa_encrypt_file(src_path, dst_path, public_key, chunk_size=2):
     n, e = public_key
 
     try:
-        with open(src_path, "rb") as f_in, open(dst_path, "w") as f_out:
+        with open(src_path, "rb") as f_in, open(dst_path, "w",encoding='utf-16') as f_out:
             data = f_in.read()
             chunks = chunk_data(data, chunk_size)
 
@@ -351,7 +351,7 @@ def rsa_decrypt_file(src_path, dst_path, private_key, chunk_size=2):
     """
     n, d = private_key
     try:
-        with open(src_path, "r") as f_in, open(dst_path, "wb") as f_out:
+        with open(src_path, "r",encoding='utf-16') as f_in, open(dst_path, "wb") as f_out:
             lines = f_in.read().splitlines()
             for line in lines:
                 c_int = int(line)
