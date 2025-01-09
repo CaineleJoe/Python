@@ -11,6 +11,22 @@ def print_usage():
     print("  python encrypted_database.py read <file_id>")
     print("  python encrypted_database.py delete <file_id>")
 
+
+def create_encrypted_files_table(db_connection):
+    create_table_query = """
+            CREATE TABLE IF NOT EXISTS encrypted_files (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                path VARCHAR(255) NOT NULL UNIQUE,
+                date_added DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """
+    cursor = db_connection.cursor()
+    cursor.execute(create_table_query)
+    db_connection.commit()
+    cursor.close()
+
+
 def db_connect():
     db_connection = mysql.connector.connect(
         host="localhost",
@@ -37,6 +53,15 @@ def generate_prime_candidate(bits=16):
     candidate |= (1<<(bits-1))|1
     return candidate
 
+def get_keys_folder():
+    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+    keys_folder = os.path.join(desktop_path, "keys")
+
+    if not os.path.exists(keys_folder):
+        os.makedirs(keys_folder, exist_ok=True)
+
+    return keys_folder
+
 def generate_prime_number(bits=16):
     while True:
         candidate=generate_prime_candidate(bits)
@@ -62,7 +87,7 @@ def encrypt_file(src_path, dst_path, key=170, chunk_size=256):
 
 
 
-def handle_add(filepath):
+def  handle_add(filepath, db_connection):
     if not os.path.isfile(filepath):
         print(f"[Error] File does not exist {filepath}")
         return
@@ -80,7 +105,26 @@ def handle_add(filepath):
     encrypted_filepath=os.path.join(encrypted_folder, encrypted_filename)
     #actual file encryption
     encrypt_file(filepath, encrypted_filepath)
+    #try inserting into database
+    try:
+        cursor = db_connection.cursor()
+        insert_sql = """
+                INSERT INTO encrypted_files (name, path)
+                VALUES (%s, %s)
+            """
+        cursor.execute(insert_sql, (base_name, encrypted_filepath))
+        db_connection.commit()
 
+        inserted_id = cursor.lastrowid
+        cursor.close()
+
+        print(f"[OK] DB record inserted with ID: {inserted_id}")
+
+    except mysql.connector.Error as err:
+        if err.errno == errorcode.ER_DUP_ENTRY:
+            print("[OK] Updated the file and the private key (Duplicate entry).")
+        else:
+            print(f"[Error] Could not insert file metadata into DB: {err}")
 
 
 def main():
@@ -113,11 +157,13 @@ def main():
             print(f"[Error] {err}")
         sys.exit(1)
 
+    #create encrypted files table if it doesn't exist
+    create_encrypted_files_table(db_connection)
 
 #Command Handler
     if command=="add":
         filepath=sys.argv[2]
-        handle_add(filepath)
+        handle_add(filepath,db_connection)
 
 
 
