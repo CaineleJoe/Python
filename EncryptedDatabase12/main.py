@@ -222,9 +222,8 @@ def handle_add(filepath, db_connection):
 
 
 # --------------------------------------------------------------------------------
-#                               MAIN
+#                           READ COMMAND (RSA)
 # --------------------------------------------------------------------------------
-
 def rsa_decrypt_file(src_path, dst_path, private_key, chunk_size=2):
     n, d = private_key
     try:
@@ -285,6 +284,10 @@ def handle_read(file_id, db_connection):
         return
 
 
+# --------------------------------------------------------------------------------
+#                                 DELETE COMMAND
+# --------------------------------------------------------------------------------
+
 def handle_delete(file_id, db_connection):
     try:
         cursor = db_connection.cursor()
@@ -334,6 +337,11 @@ def handle_delete(file_id, db_connection):
 
     except mysql.connector.Error as err:
         print(f"[Error] Database error while deleting ID: {file_id}: {err}")
+
+
+# --------------------------------------------------------------------------------
+#                               MAIN
+# --------------------------------------------------------------------------------
 
 
 def main():
