@@ -282,6 +282,59 @@ def handle_read(file_id, db_connection):
         rsa_decrypt_file(encrypted_path, decrypted_path, private_key, chunk_size=2)
     except mysql.connector.Error as err:
         print(f"[Error] Database error while checking for duplicates: {err}")
+        return
+
+
+def handle_delete(file_id, db_connection):
+    try:
+        cursor = db_connection.cursor()
+        select_sql = "Select name, path FROM encrypted_files WHERE id=%s"
+        cursor.execute(select_sql, (file_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            print(f"[Error] Record not found with ID: {file_id}")
+            cursor.close()
+            return
+
+        name, encrypted_path = row
+        cursor.close()
+
+        # delete encrypted file from disk
+
+        if os.path.isfile(encrypted_path):
+            try:
+                os.remove(encrypted_path)
+                print(f"[OK] File deleted successfully: {name}")
+            except Exception as e:
+                print(f"[Error] Failed to delete file: {name}")
+        else:
+            print(f"[Error] File does not exist: {name}")
+
+        # delete private key file
+        keys_folder = get_keys_folder()
+        pk_filename = f"pk_{file_id}.txt"
+        pk_path = os.path.join(keys_folder, pk_filename)
+        if os.path.isfile(pk_path):
+            try:
+                os.remove(pk_path)
+                print(f"[OK] Private key file deleted successfully: {name}")
+            except Exception as e:
+                print(f"[Error] Failed to delete file: {name}")
+        else:
+            print(f"[Error] File does not exist: {name}")
+
+        # delete record from database
+        cursor = db_connection.cursor()
+        delete_sql = "DELETE FROM encrypted_files WHERE id=%s"
+        cursor.execute(delete_sql, (file_id,))
+        db_connection.commit()
+        print(f"[OK] Record deleted successfully: {name}")
+        cursor.close()
+
+    except mysql.connector.Error as err:
+        print(f"[Error] Database error while deleting ID: {file_id}: {err}")
+
 
 def main():
     # command validation
@@ -321,11 +374,20 @@ def main():
         filepath = sys.argv[2]
         handle_add(filepath, db_connection)
 
-    if command == "read":
-        if int(sys.argv[2]):
-            handle_read(int(sys.argv[2]), db_connection)
-        else:
-            print("[Error] Invalid ID.")
+    elif command == "read":
+        try:
+            if int(sys.argv[2]):
+                handle_read(int(sys.argv[2]), db_connection)
+        except ValueError:
+            print("[Error] Invalid ID. Only integers are allowed.")
+            return
+
+    elif command == "delete":
+        try:
+            if int(sys.argv[2]):
+                handle_delete(int(sys.argv[2]), db_connection)
+        except ValueError:
+            print("[Error] Invalid ID. Only integers are allowed.")
             return
 
     # Close the connection
