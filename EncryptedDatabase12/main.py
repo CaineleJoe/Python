@@ -69,8 +69,6 @@ def generate_prime_candidate(bits=16):
     return candidate
 
 
-
-
 def generate_prime_number(bits=16):
     while True:
         candidate = generate_prime_candidate(bits)
@@ -82,18 +80,18 @@ def generate_prime_number(bits=16):
 #                           RSA KEY GENERATION
 # --------------------------------------------------------------------------------
 def generate_rsa_keypair(bits=16):
-    p=generate_prime_number(bits)
-    q=generate_prime_number(bits)
-    while p==q:
-        q=generate_prime_number(bits)
-    n= p*q
-    phi=(p-1)*(q-1)
-    e= 65537
-    if(gcd(e,phi)!=1):
-        e=random.randint(2,phi-1)
+    p = generate_prime_number(bits)
+    q = generate_prime_number(bits)
+    while p == q:
+        q = generate_prime_number(bits)
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    e = 65537
+    if (gcd(e, phi) != 1):
+        e = random.randint(2, phi - 1)
 
-    d=pow(e,-1,phi)
-    return (n,e),(n,d) #public_key=(n,e) private_key=(n,d)
+    d = pow(e, -1, phi)
+    return (n, e), (n, d)  # public_key=(n,e) private_key=(n,d)
 
 
 def save_key_to_file(private_key, filename):
@@ -101,6 +99,14 @@ def save_key_to_file(private_key, filename):
     with open(filename, "wb") as f:
         f.write(str(n).encode('utf-8') + b"\n")
         f.write(str(d).encode('utf-8') + b"\n")
+
+
+def load_private_key(filename):
+    with open(filename, "rb") as f:
+        lines = f.read().splitlines()
+        n = int(lines[0].decode('utf-8'))
+        d = int(lines[1].decode('utf-8'))
+        return (n, d)
 
 
 def get_keys_folder():
@@ -113,7 +119,6 @@ def get_keys_folder():
     return keys_folder
 
 
-
 # --------------------------------------------------------------------------------
 #                           RSA FILE ENCRYPTION
 # --------------------------------------------------------------------------------
@@ -121,14 +126,16 @@ def get_keys_folder():
 def bytes_to_int(b):
     return int.from_bytes(b, 'big')
 
+
 def int_to_bytes(i, length):
     return i.to_bytes(length, 'big')
 
+
 def chunk_data(data, chunk_size):
-    return [data[i:i+chunk_size] for i in range(0, len(data), chunk_size)]
+    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
 
 def rsa_encrypt_file(src_path, dst_path, public_key, chunk_size=2):
-
     n, e = public_key
 
     try:
@@ -171,9 +178,9 @@ def handle_add(filepath, db_connection):
 
     try:
         cursor = db_connection.cursor()
-        select_sql="SELECT id FROM encrypted_files WHERE name=%s"
+        select_sql = "SELECT id FROM encrypted_files WHERE name=%s"
         cursor.execute(select_sql, (base_name,))
-        existing_row=cursor.fetchone()
+        existing_row = cursor.fetchone()
         if existing_row:
             print(f"[Error] File {base_name} already exists in the database. ID={existing_row[0]}")
             cursor.close()
@@ -185,10 +192,10 @@ def handle_add(filepath, db_connection):
 
     encrypted_filename = base_name + "_encrypted"
     encrypted_filepath = os.path.join(encrypted_folder, encrypted_filename)
-    #key generation
+    # key generation
     public_key, private_key = generate_rsa_keypair(16)
     # actual file encryption
-    rsa_encrypt_file(filepath, encrypted_filepath,public_key,2)
+    rsa_encrypt_file(filepath, encrypted_filepath, public_key, 2)
     # try inserting into database
     try:
         cursor = db_connection.cursor()
@@ -201,7 +208,7 @@ def handle_add(filepath, db_connection):
 
         inserted_id = cursor.lastrowid
         cursor.close()
-        #save the key
+        # save the key
         keys_folder = get_keys_folder()
         pk_filename = f"pk_{inserted_id}.txt"
         pk_path = os.path.join(keys_folder, pk_filename)
@@ -210,14 +217,71 @@ def handle_add(filepath, db_connection):
         print(f"[OK] DB record inserted with ID: {inserted_id}")
 
     except mysql.connector.Error as err:
-            print(f"[Error] Could not insert file metadata into DB: {err}")
-            return
-
+        print(f"[Error] Could not insert file metadata into DB: {err}")
+        return
 
 
 # --------------------------------------------------------------------------------
 #                               MAIN
 # --------------------------------------------------------------------------------
+
+def rsa_decrypt_file(src_path, dst_path, private_key, chunk_size=2):
+    n, d = private_key
+    try:
+        with open(src_path, "r") as f_in, open(dst_path, "wb") as f_out:
+            lines = f_in.read().splitlines()
+            for line in lines:
+                c_int = int(line)
+                m_int = pow(c_int, d, n)  # RSA DECRYPTION
+                chunk_bytes = int_to_bytes(m_int, chunk_size)
+                f_out.write(chunk_bytes)
+
+        print(f"[OK] RSA-decrypted file saved to: {dst_path}")
+    except FileNotFoundError:
+        print(f"[Error] Source file not found: {src_path}")
+    except PermissionError:
+        print("[Error] Permission denied.")
+    except Exception as e:
+        print(f"[Error] Something went wrong: {e}")
+
+
+def handle_read(file_id, db_connection):
+    try:
+        cursor = db_connection.cursor()
+        select_sql = "SELECT name,path FROM encrypted_files WHERE id=%s"
+        cursor.execute(select_sql, (file_id,))
+        row = cursor.fetchone()
+        cursor.close()
+
+        if not row:
+            print(f"[Error] File not found with ID: {file_id}")
+            return
+        name, encrypted_path = row
+        if not os.path.isfile(encrypted_path):
+            print(f"[Error] File does not exist: {encrypted_path}")
+            return
+
+        # load the key
+        keys_folder = get_keys_folder()
+        pk_filename = f"pk_{file_id}.txt"
+        pk_path = os.path.join(keys_folder, pk_filename)
+        if not os.path.isfile(pk_path):
+            print(f"[Error] File does not exist: {pk_path}")
+            return
+
+        private_key = load_private_key(pk_path)
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        decrypted_folder = os.path.join(desktop_path, "Decrypted")
+        decrypted_path = os.path.join(decrypted_folder, name)
+        if not os.path.exists(decrypted_folder):
+            try:
+                os.makedirs(decrypted_folder)
+            except Exception as e:
+                print(f"[Error] Failed to create folder {decrypted_folder}. Reason: {e}")
+                return
+        rsa_decrypt_file(encrypted_path, decrypted_path, private_key, chunk_size=2)
+    except mysql.connector.Error as err:
+        print(f"[Error] Database error while checking for duplicates: {err}")
 
 def main():
     # command validation
@@ -256,6 +320,13 @@ def main():
     if command == "add":
         filepath = sys.argv[2]
         handle_add(filepath, db_connection)
+
+    if command == "read":
+        if int(sys.argv[2]):
+            handle_read(int(sys.argv[2]), db_connection)
+        else:
+            print("[Error] Invalid ID.")
+            return
 
     # Close the connection
     if db_connection.is_connected():
