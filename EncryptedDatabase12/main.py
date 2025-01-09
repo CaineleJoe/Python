@@ -1,3 +1,26 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Encrypted File Manager using RSA Encryption and MySQL Database.
+
+This script allows users to encrypt files using a naive RSA implementation,
+store metadata in a MySQL database, decrypt files, delete records along
+with associated encrypted files and private keys, and list all encrypted files.
+
+Commands:
+    add <file_path>      Encrypts the specified file and stores its metadata.
+    read <file_id>       Decrypts the file associated with the given ID.
+    delete <file_id>     Deletes the record, encrypted file, and private key associated with the given ID.
+    list all             Displays all records in the encrypted_files table.
+
+Usage:
+    python encrypted_database.py add <file_path>
+    python encrypted_database.py read <file_id>
+    python encrypted_database.py delete <file_id>
+    python encrypted_database.py list all
+"""
+
 import os
 import random
 import sys
@@ -11,6 +34,9 @@ from mysql.connector import errorcode
 # --------------------------------------------------------------------------------
 
 def print_usage():
+    """
+    Prints the usage instructions for the script.
+    """
     print("Usage:")
     print("  python encrypted_database.py add <file_path>")
     print("  python encrypted_database.py read <file_id>")
@@ -23,6 +49,19 @@ def print_usage():
 # --------------------------------------------------------------------------------
 
 def create_encrypted_files_table(db_connection):
+    """
+    Creates the 'encrypted_files' table in the database if it does not exist.
+
+    The table stores metadata about encrypted files, including:
+        - id: Auto-incremented primary key.
+        - name: Name of the original file (unique).
+        - path: Path to the encrypted file (unique).
+        - date_added: Timestamp of when the record was added.
+
+    Args:
+        db_connection (mysql.connector.connection_cext.CMySQLConnection):
+            Active database connection.
+    """
     create_table_query = """
             CREATE TABLE IF NOT EXISTS encrypted_files (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -38,6 +77,16 @@ def create_encrypted_files_table(db_connection):
 
 
 def db_connect():
+    """
+    Establishes a connection to the MySQL database.
+
+    Returns:
+        mysql.connector.connection_cext.CMySQLConnection:
+            Database connection object.
+
+    Raises:
+        mysql.connector.Error: If the connection fails.
+    """
     db_connection = mysql.connector.connect(
         host="localhost",
         user="root",
@@ -52,6 +101,15 @@ def db_connect():
 # --------------------------------------------------------------------------------
 
 def is_prime(n):
+    """
+    Checks if a number is prime using trial division.
+
+    Args:
+        n (int): The number to check for primality.
+
+    Returns:
+        bool: True if 'n' is prime, False otherwise.
+    """
     if n < 2:
         return False
     if n % 2 == 0:
@@ -65,12 +123,34 @@ def is_prime(n):
 
 
 def generate_prime_candidate(bits=16):
+    """
+    Generates a random prime candidate of specified bit length.
+
+    Ensures the candidate is odd and has the highest bit set to ensure bit length.
+
+    Args:
+        bits (int, optional): Number of bits for the prime candidate. Defaults to 16.
+
+    Returns:
+        int: A prime candidate.
+    """
     candidate = random.getrandbits(bits)
-    candidate |= (1 << (bits - 1)) | 1
+    candidate |= (1 << (bits - 1)) | 1  # Ensure it's odd and has the highest bit set
     return candidate
 
 
 def generate_prime_number(bits=16):
+    """
+    Generates a prime number of specified bit length.
+
+    Repeatedly generates prime candidates until a prime is found.
+
+    Args:
+        bits (int, optional): Number of bits for the prime number. Defaults to 16.
+
+    Returns:
+        int: A prime number.
+    """
     while True:
         candidate = generate_prime_candidate(bits)
         if is_prime(candidate):
@@ -80,22 +160,46 @@ def generate_prime_number(bits=16):
 # --------------------------------------------------------------------------------
 #                           RSA KEY GENERATION
 # --------------------------------------------------------------------------------
+
 def generate_rsa_keypair(bits=16):
+    """
+    Generates an RSA keypair (public and private keys).
+
+    Args:
+        bits (int, optional): Bit length for prime numbers 'p' and 'q'. Defaults to 16.
+
+    Returns:
+        tuple:
+            - public_key (tuple): (n, e)
+            - private_key (tuple): (n, d)
+    """
     p = generate_prime_number(bits)
     q = generate_prime_number(bits)
     while p == q:
         q = generate_prime_number(bits)
+
     n = p * q
     phi = (p - 1) * (q - 1)
     e = 65537
     if (gcd(e, phi) != 1):
         e = random.randint(2, phi - 1)
+        while gcd(e, phi) != 1:
+            e = random.randint(2, phi - 1)
 
     d = pow(e, -1, phi)
     return (n, e), (n, d)  # public_key=(n,e) private_key=(n,d)
 
 
 def save_key_to_file(private_key, filename):
+    """
+    Saves the private key to a file.
+
+    The private key consists of two integers, 'n' and 'd', each written on separate lines.
+
+    Args:
+        private_key (tuple): (n, d) representing the private key.
+        filename (str): Path to the file where the key will be saved.
+    """
     n, d = private_key
     with open(filename, "wb") as f:
         f.write(str(n).encode('utf-8') + b"\n")
@@ -103,14 +207,39 @@ def save_key_to_file(private_key, filename):
 
 
 def load_private_key(filename):
+    """
+    Loads the private key from a file.
+
+    Expects the file to have 'n' and 'd' on separate lines.
+
+    Args:
+        filename (str): Path to the private key file.
+
+    Returns:
+        tuple: (n, d) representing the private key.
+
+    Raises:
+        FileNotFoundError: If the key file does not exist.
+        ValueError: If the key file is improperly formatted.
+    """
     with open(filename, "rb") as f:
         lines = f.read().splitlines()
+        if len(lines) < 2:
+            raise ValueError("Invalid key file format.")
         n = int(lines[0].decode('utf-8'))
         d = int(lines[1].decode('utf-8'))
         return (n, d)
 
 
 def get_keys_folder():
+    """
+    Retrieves the path to the 'keys' folder on the Desktop.
+
+    Creates the folder if it does not exist.
+
+    Returns:
+        str: Path to the 'keys' folder.
+    """
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
     keys_folder = os.path.join(desktop_path, "keys")
 
@@ -125,18 +254,63 @@ def get_keys_folder():
 # --------------------------------------------------------------------------------
 
 def bytes_to_int(b):
+    """
+    Converts bytes to an integer.
+
+    Args:
+        b (bytes): Byte sequence to convert.
+
+    Returns:
+        int: Integer representation of the bytes.
+    """
     return int.from_bytes(b, 'big')
 
 
 def int_to_bytes(i, length):
+    """
+    Converts an integer to bytes of specified length.
+
+    Args:
+        i (int): Integer to convert.
+        length (int): Number of bytes to represent the integer.
+
+    Returns:
+        bytes: Byte sequence representing the integer.
+    """
     return i.to_bytes(length, 'big')
 
 
 def chunk_data(data, chunk_size):
+    """
+    Splits data into fixed-size chunks.
+
+    Args:
+        data (bytes): Data to split.
+        chunk_size (int): Size of each chunk in bytes.
+
+    Returns:
+        list: List of byte chunks.
+    """
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 
 def rsa_encrypt_file(src_path, dst_path, public_key, chunk_size=2):
+    """
+    Encrypts a file using RSA and writes the ciphertext to another file.
+
+    Each chunk of the original file is encrypted and written as a separate line.
+
+    Args:
+        src_path (str): Path to the source (original) file.
+        dst_path (str): Path to the destination (encrypted) file.
+        public_key (tuple): (n, e) representing the RSA public key.
+        chunk_size (int, optional): Size of each chunk in bytes. Defaults to 2.
+
+    Raises:
+        FileNotFoundError: If the source file does not exist.
+        PermissionError: If there are permission issues accessing the files.
+        Exception: For any other unforeseen errors.
+    """
     n, e = public_key
 
     try:
@@ -158,13 +332,65 @@ def rsa_encrypt_file(src_path, dst_path, public_key, chunk_size=2):
         print(f"[Error] Something went wrong: {e}")
 
 
+def rsa_decrypt_file(src_path, dst_path, private_key, chunk_size=2):
+    """
+    Decrypts an RSA-encrypted file and writes the plaintext to another file.
+
+    Each line in the encrypted file represents an encrypted chunk.
+
+    Args:
+        src_path (str): Path to the source (encrypted) file.
+        dst_path (str): Path to the destination (decrypted) file.
+        private_key (tuple): (n, d) representing the RSA private key.
+        chunk_size (int, optional): Size of each chunk in bytes. Defaults to 2.
+
+    Raises:
+        FileNotFoundError: If the encrypted file does not exist.
+        PermissionError: If there are permission issues accessing the files.
+        Exception: For any other unforeseen errors.
+    """
+    n, d = private_key
+    try:
+        with open(src_path, "r") as f_in, open(dst_path, "wb") as f_out:
+            lines = f_in.read().splitlines()
+            for line in lines:
+                c_int = int(line)
+                m_int = pow(c_int, d, n)  # RSA DECRYPTION
+                chunk_bytes = int_to_bytes(m_int, chunk_size)
+                f_out.write(chunk_bytes)
+
+        print(f"[OK] RSA-decrypted file saved to: {dst_path}")
+    except FileNotFoundError:
+        print(f"[Error] Source file not found: {src_path}")
+    except PermissionError:
+        print("[Error] Permission denied.")
+    except Exception as e:
+        print(f"[Error] Something went wrong: {e}")
+
+
 # --------------------------------------------------------------------------------
 #                           ADD COMMAND (RSA)
 # --------------------------------------------------------------------------------
 
 def handle_add(filepath, db_connection):
+    """
+    Handles the 'add' command: encrypts a file, stores metadata, and saves the private key.
+
+    Steps:
+        1. Validates the existence of the source file.
+        2. Checks for duplicate entries in the database.
+        3. Generates RSA keypair.
+        4. Encrypts the file using the public key.
+        5. Inserts metadata into the database.
+        6. Saves the private key to a file.
+
+    Args:
+        filepath (str): Path to the file to be encrypted.
+        db_connection (mysql.connector.connection_cext.CMySQLConnection):
+            Active database connection.
+    """
     if not os.path.isfile(filepath):
-        print(f"[Error] File does not exist {filepath}")
+        print(f"[Error] File does not exist: {filepath}")
         return
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
     encrypted_folder = os.path.join(desktop_path, "Encrypted")
@@ -225,27 +451,21 @@ def handle_add(filepath, db_connection):
 # --------------------------------------------------------------------------------
 #                           READ COMMAND (RSA)
 # --------------------------------------------------------------------------------
-def rsa_decrypt_file(src_path, dst_path, private_key, chunk_size=2):
-    n, d = private_key
-    try:
-        with open(src_path, "r") as f_in, open(dst_path, "wb") as f_out:
-            lines = f_in.read().splitlines()
-            for line in lines:
-                c_int = int(line)
-                m_int = pow(c_int, d, n)  # RSA DECRYPTION
-                chunk_bytes = int_to_bytes(m_int, chunk_size)
-                f_out.write(chunk_bytes)
-
-        print(f"[OK] RSA-decrypted file saved to: {dst_path}")
-    except FileNotFoundError:
-        print(f"[Error] Source file not found: {src_path}")
-    except PermissionError:
-        print("[Error] Permission denied.")
-    except Exception as e:
-        print(f"[Error] Something went wrong: {e}")
-
 
 def handle_read(file_id, db_connection):
+    """
+    Handles the 'read' command: decrypts an encrypted file using its private key.
+
+    Steps:
+        1. Retrieves the file's metadata from the database using 'file_id'.
+        2. Loads the corresponding private key from the 'keys' folder.
+        3. Decrypts the encrypted file and saves the decrypted version.
+
+    Args:
+        file_id (int): ID of the file record in the database.
+        db_connection (mysql.connector.connection_cext.CMySQLConnection):
+            Active database connection.
+    """
     try:
         cursor = db_connection.cursor()
         select_sql = "SELECT name,path FROM encrypted_files WHERE id=%s"
@@ -290,6 +510,20 @@ def handle_read(file_id, db_connection):
 # --------------------------------------------------------------------------------
 
 def handle_delete(file_id, db_connection):
+    """
+    Handles the 'delete' command: removes the encrypted file, its private key, and the database record.
+
+    Steps:
+        1. Retrieves the file's metadata from the database using 'file_id'.
+        2. Deletes the encrypted file from the disk.
+        3. Deletes the corresponding private key file from the 'keys' folder.
+        4. Removes the database record.
+
+    Args:
+        file_id (int): ID of the file record in the database.
+        db_connection (mysql.connector.connection_cext.CMySQLConnection):
+            Active database connection.
+    """
     try:
         cursor = db_connection.cursor()
         select_sql = "Select name, path FROM encrypted_files WHERE id=%s"
@@ -341,13 +575,24 @@ def handle_delete(file_id, db_connection):
 
 
 # --------------------------------------------------------------------------------
-#                               MAIN
+#                               LIST COMMAND
 # --------------------------------------------------------------------------------
 
 def handle_list(db_connection):
+    """
+    Handles the 'list all' command: displays all records in the encrypted_files table.
+
+    Steps:
+        1. Retrieves all records from the 'encrypted_files' table.
+        2. Formats and prints the records in a readable format.
+
+    Args:
+        db_connection (mysql.connector.connection_cext.CMySQLConnection):
+            Active database connection.
+    """
     try:
         cursor = db_connection.cursor()
-        select_sql = "SELECT id,name,path FROM encrypted_files ORDER BY id"
+        select_sql = "SELECT id, name, path, date_added FROM encrypted_files ORDER BY id"
         cursor.execute(select_sql)
         rows = cursor.fetchall()
         cursor.close()
@@ -355,16 +600,28 @@ def handle_list(db_connection):
             print(f"[Error] No records in the database")
             return
 
+        # Print header
+        header = f"{'ID':<5} {'Name':<30} {'Path':<50} {'Date Added':<20}"
+        print(header)
+        print("-" * len(header))
+
+        # Print each row
         for row in rows:
-            print(f"ID:{row[0]}")
-            print(f"Name:{row[1]}")
-            print(f"Path:{row[2]}")
-            print("-----------------------------------------------")
+            id_, name, path, date_added = row
+            print(f"{id_:<5} {name:<30} {path:<50} {date_added:<20}")
+
     except mysql.connector.Error as err:
         print(f"[Error] Database error while listing IDs: {err}")
 
 
+# --------------------------------------------------------------------------------
+#                               MAIN
+# --------------------------------------------------------------------------------
+
 def main():
+    """
+    Entry point of the script. Parses command-line arguments and dispatches commands.
+    """
     # command validation
     if len(sys.argv) < 2 or len(sys.argv) > 3:
         print("[Error] Invalid number of arguments.")
@@ -399,26 +656,41 @@ def main():
 
     # Command Handler
     if command == "add":
-        filepath = sys.argv[2]
-        handle_add(filepath, db_connection)
+        if len(sys.argv) == 3:
+            filepath = sys.argv[2]
+            handle_add(filepath, db_connection)
+        else:
+            print("[Error] Missing <file_path> for 'add' command.")
+            print_usage()
 
     elif command == "read":
-        try:
-            if int(sys.argv[2]):
-                handle_read(int(sys.argv[2]), db_connection)
-        except ValueError:
-            print("[Error] Invalid ID. Only integers are allowed.")
-            return
+        if len(sys.argv) == 3:
+            try:
+                file_id = int(sys.argv[2])
+                handle_read(file_id, db_connection)
+            except ValueError:
+                print("[Error] Invalid ID. Only integers are allowed.")
+        else:
+            print("[Error] Missing <file_id> for 'read' command.")
+            print_usage()
 
     elif command == "delete":
-        try:
-            if int(sys.argv[2]):
-                handle_delete(int(sys.argv[2]), db_connection)
-        except ValueError:
-            print("[Error] Invalid ID. Only integers are allowed.")
-            return
-    elif command == "list" and sys.argv[2]=="all":
+        if len(sys.argv) == 3:
+            try:
+                file_id = int(sys.argv[2])
+                handle_delete(file_id, db_connection)
+            except ValueError:
+                print("[Error] Invalid ID. Only integers are allowed.")
+        else:
+            print("[Error] Missing <file_id> for 'delete' command.")
+            print_usage()
+
+    elif command == "list" and len(sys.argv) == 3 and sys.argv[2].lower() == "all":
         handle_list(db_connection)
+    else:
+        print("[Error] Invalid arguments.")
+        print_usage()
+
     # Close the connection
     if db_connection.is_connected():
         db_connection.close()
