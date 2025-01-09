@@ -15,6 +15,7 @@ def print_usage():
     print("  python encrypted_database.py add <file_path>")
     print("  python encrypted_database.py read <file_id>")
     print("  python encrypted_database.py delete <file_id>")
+    print("  python encrypted_database.py list all")
 
 
 # --------------------------------------------------------------------------------
@@ -343,6 +344,25 @@ def handle_delete(file_id, db_connection):
 #                               MAIN
 # --------------------------------------------------------------------------------
 
+def handle_list(db_connection):
+    try:
+        cursor = db_connection.cursor()
+        select_sql = "SELECT id,name,path FROM encrypted_files ORDER BY id"
+        cursor.execute(select_sql)
+        rows = cursor.fetchall()
+        cursor.close()
+        if not rows:
+            print(f"[Error] No records in the database")
+            return
+
+        for row in rows:
+            print(f"ID:{row[0]}")
+            print(f"Name:{row[1]}")
+            print(f"Path:{row[2]}")
+            print("-----------------------------------------------")
+    except mysql.connector.Error as err:
+        print(f"[Error] Database error while listing IDs: {err}")
+
 
 def main():
     # command validation
@@ -352,7 +372,7 @@ def main():
         return
 
     command = sys.argv[1].lower()
-    valid_commands = ["add", "read", "delete"]
+    valid_commands = ["add", "read", "delete", "list"]
 
     if command not in valid_commands:
         print(f"[Error] Unknown command: '{command}'")
@@ -397,7 +417,8 @@ def main():
         except ValueError:
             print("[Error] Invalid ID. Only integers are allowed.")
             return
-
+    elif command == "list" and sys.argv[2]=="all":
+        handle_list(db_connection)
     # Close the connection
     if db_connection.is_connected():
         db_connection.close()
