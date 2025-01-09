@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 
 import mysql.connector
@@ -18,6 +19,29 @@ def db_connect():
         database="encrypted_database"
     )
     return db_connection
+
+def is_prime(n):
+    if n<2:
+        return False
+    if n%2==0:
+        return n==2
+
+    for i in range(3,int(n**0.5)+1,2):
+        if n % i==0:
+            return False
+
+    return True
+
+def generate_prime_candidate(bits=16):
+    candidate = random.getrandbits(bits)
+    candidate |= (1<<(bits-1))|1
+    return candidate
+
+def generate_prime_number(bits=16):
+    while True:
+        candidate=generate_prime_candidate(bits)
+        if is_prime(candidate):
+            return candidate
 
 def encrypt_file(src_path, dst_path, key=170, chunk_size=256):
     try:
