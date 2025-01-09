@@ -96,10 +96,11 @@ def generate_rsa_keypair(bits=16):
     return (n,e),(n,d) #public_key=(n,e) private_key=(n,d)
 
 
-def save_key_to_file(key_tuple, filename):
+def save_key_to_file(private_key, filename):
+    n, d = private_key
     with open(filename, "wb") as f:
-        f.write(str(key_tuple[0])+"\n")
-        f.write(str(key_tuple[1])+"\n")
+        f.write(str(n).encode('utf-8') + b"\n")
+        f.write(str(d).encode('utf-8') + b"\n")
 
 
 def get_keys_folder():
@@ -116,20 +117,35 @@ def get_keys_folder():
 # --------------------------------------------------------------------------------
 #                           RSA FILE ENCRYPTION
 # --------------------------------------------------------------------------------
-def encrypt_file(src_path, dst_path, key=170, chunk_size=256):
+
+def bytes_to_int(b):
+    return int.from_bytes(b, 'big')
+
+def int_to_bytes(i, length):
+    return i.to_bytes(length, 'big')
+
+def chunk_data(data, chunk_size):
+    return [data[i:i+chunk_size] for i in range(0, len(data), chunk_size)]
+
+def rsa_encrypt_file(src_path, dst_path, public_key, chunk_size=2):
+
+    n, e = public_key
+
     try:
-        with open(src_path, "rb") as src_file, open(dst_path, "wb") as dst_file:
-            while True:
-                chunk = src_file.read(chunk_size)
-                if not chunk:
-                    break
-                encrypted_chunk = bytes([b ^ key for b in chunk])
-                dst_file.write(encrypted_chunk)
-        print("[OK] File encrypted and saved to:", dst_path)
+        with open(src_path, "rb") as f_in, open(dst_path, "w") as f_out:
+            data = f_in.read()
+            chunks = chunk_data(data, chunk_size)
+
+            for ch in chunks:
+                m_int = bytes_to_int(ch)
+                c_int = pow(m_int, e, n)  # RSA encryption: c = m^e mod n
+                f_out.write(str(c_int) + "\n")
+
+        print(f"[OK] RSA-encrypted file saved to: {dst_path}")
     except FileNotFoundError:
         print(f"[Error] Source file not found: {src_path}")
     except PermissionError:
-        print(f"[Error] Permission denied. Could not read or write file.")
+        print("[Error] Permission denied.")
     except Exception as e:
         print(f"[Error] Something went wrong: {e}")
 
@@ -152,10 +168,27 @@ def handle_add(filepath, db_connection):
             return
 
     base_name = os.path.basename(filepath)
+
+    try:
+        cursor = db_connection.cursor()
+        select_sql="SELECT id FROM encrypted_files WHERE name=%s"
+        cursor.execute(select_sql, (base_name,))
+        existing_row=cursor.fetchone()
+        if existing_row:
+            print(f"[Error] File {base_name} already exists in the database. ID={existing_row[0]}")
+            cursor.close()
+            return
+        cursor.close()
+    except mysql.connector.Error as err:
+        print(f"[Error] Database error while checking for duplicates: {err}")
+        return
+
     encrypted_filename = base_name + "_encrypted"
     encrypted_filepath = os.path.join(encrypted_folder, encrypted_filename)
+    #key generation
+    public_key, private_key = generate_rsa_keypair(16)
     # actual file encryption
-    encrypt_file(filepath, encrypted_filepath)
+    rsa_encrypt_file(filepath, encrypted_filepath,public_key,2)
     # try inserting into database
     try:
         cursor = db_connection.cursor()
@@ -168,14 +201,18 @@ def handle_add(filepath, db_connection):
 
         inserted_id = cursor.lastrowid
         cursor.close()
-
+        #save the key
+        keys_folder = get_keys_folder()
+        pk_filename = f"pk_{inserted_id}.txt"
+        pk_path = os.path.join(keys_folder, pk_filename)
+        save_key_to_file(private_key, pk_path)
+        print(f"[OK] Private key saved to: {pk_path}")
         print(f"[OK] DB record inserted with ID: {inserted_id}")
 
     except mysql.connector.Error as err:
-        if err.errno == errorcode.ER_DUP_ENTRY:
-            print("[OK] Updated the file and the private key (Duplicate entry).")
-        else:
             print(f"[Error] Could not insert file metadata into DB: {err}")
+            return
+
 
 
 # --------------------------------------------------------------------------------
